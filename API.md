@@ -39,7 +39,7 @@ openssl pkey -in user_private.pem -pubout -outform DER | tail -c 32 | base64 -w0
 
 ```bash
 echo -n "message_to_sign" > msg.txt
-openssl pkeyutl -sign -inkey user_private.pem -in msg.txt -out msg.sig -pkeyopt digest:None
+openssl pkeyutl -sign -inkey user_private.pem -in msg.txt -out msg.sig
 ```
 
 ## Эндпоинты
