@@ -82,6 +82,8 @@ void Paranoia::runIO()
     prctl(PR_SET_NAME, "MetricsModel", 0, 0, 0);
     server = std::make_unique<d3156::EasyWebServer>(io, config.port);
     store  = std::make_unique<PacketStore>(config.store_path);
+    G_LOG(0, "Paranoia server started at http://0.0.0.0:" << config.port);
+
     server->addPath("/reg",
                     [this](const boost::beast::http::request<boost::beast::http::string_body> &req,
                            const boost::asio::ip::address &client_ip) -> std::pair<bool, std::string> {

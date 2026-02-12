@@ -19,6 +19,29 @@ Paranoia — это сервер для безопасного хранения 
 
 ---
 
+## Генерация ключей
+
+### Admin
+
+```bash
+openssl genpkey -algorithm Ed25519 -out admin_private.pem
+openssl pkey -in admin_private.pem -pubout -out admin_public.pem
+```
+
+### User
+
+```bash
+openssl genpkey -algorithm Ed25519 -out user_private.pem
+openssl pkey -in user_private.pem -pubout -out user_public.pem
+```
+
+### Test sign
+
+```bash
+echo -n "message_to_sign" > msg.txt
+openssl pkeyutl -sign -inkey user_private.pem -in msg.txt -out msg.sig -pkeyopt digest:None
+```
+
 ## Эндпоинты
 
 ### 1. `/reg` — Регистрация пользователя
@@ -113,7 +136,7 @@ Paranoia — это сервер для безопасного хранения 
 ```json
 {
     "success": true,
-    "message": "[{"seq":11,"payload":"BASE64_DATA"},{"seq":12,"payload":"BASE64_DATA"}]"
+    "message": [{"seq":11,"payload":"BASE64_DATA"},{"seq":12,"payload":"BASE64_DATA"}]
 }
 ```
 
