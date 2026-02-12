@@ -5,6 +5,7 @@
 #include <ParanoiaModel>
 #include <boost/thread/thread.hpp>
 #include <EasyHttpLib/EasyWebServer>
+#include <MetricsModel/Metrics>
 #include <string>
 #include "PacketStore.hpp"
 #include "config.hpp"
@@ -32,4 +33,16 @@ private:
     boost::asio::executor_work_guard<boost::asio::io_context::executor_type> io_guard =
         boost::asio::make_work_guard(io);
     std::atomic<bool> stopToken = false;
+
+    std::unique_ptr<Metrics::Counter> reg_success_total;
+    std::unique_ptr<Metrics::Counter> reg_fail_total;
+
+    std::unique_ptr<Metrics::Counter> push_success_total;
+    std::unique_ptr<Metrics::Counter> push_fail_total;
+
+    std::unique_ptr<Metrics::Counter> pull_success_total;
+    std::unique_ptr<Metrics::Counter> pull_fail_total;
+
+    std::unique_ptr<Metrics::Counter> determinate_success_total;
+    std::unique_ptr<Metrics::Counter> determinate_fail_total;
 };

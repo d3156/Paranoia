@@ -3,6 +3,7 @@
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/beast/core/detail/base64.hpp>
 #include <filesystem>
+#include <Logger/Log.hpp>
 
 using boost::property_tree::ptree;
 using namespace boost::beast::detail;
@@ -37,7 +38,6 @@ void Config::save(const std::string &filename)
         users_node.push_back(std::make_pair("", user_node));
     }
     pt.add_child("users", users_node);
-
     write_json(filename, pt);
 }
 
@@ -52,7 +52,18 @@ void Config::load(const std::string &filename)
     port         = pt.get("port", 1455);
     store_path   = pt.get("store_path", "store");
     admin_pubkey = decode_base64(pt.get<std::string>("admin_key", ""));
+    if (admin_pubkey.size() != 32) {
+        R_LOG(1, "Admin public key has invalid length: " << admin_pubkey.size() << " bytes");
+        admin_pubkey.clear();
+    }
     users.clear();
-    for (auto &[item, node] : pt.get_child("users"))
-        users[node.get<std::string>("username", "")] = decode_base64(node.get<std::string>("pubkey", ""));
+    for (auto &[item, node] : pt.get_child("users")) {
+        auto username = node.get<std::string>("username", "");
+        auto key      = decode_base64(node.get<std::string>("pubkey", ""));
+        if (key.size() != 32) {
+            Y_LOG(1, "User " << username << " has invalid public key length: " << key.size() << " bytes. Skipping.");
+            continue;
+        }
+        users[username] = std::move(key);
+    }
 }

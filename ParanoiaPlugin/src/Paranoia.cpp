@@ -1,12 +1,14 @@
 #include "Paranoia.hpp"
 #include "PacketStore.hpp"
 #include "config.hpp"
+#include <MetricsModel/MetricsModel>
 #include <boost/json/parse.hpp>
 #include <boost/json/serialize.hpp>
 #include <boost/json/value.hpp>
 #include <linux/prctl.h>
 #include <string>
 #include <sys/prctl.h>
+#include <memory>
 
 void Paranoia::registerArgs(d3156::Args::Builder &bldr)
 {
@@ -15,7 +17,16 @@ void Paranoia::registerArgs(d3156::Args::Builder &bldr)
 
 void Paranoia::registerModels(d3156::PluginCore::ModelsStorage &models)
 {
-    auto model = models.registerModel<ParanoiaModel>();
+    MetricsModel::instance()  = models.registerModel<MetricsModel>();
+    auto model                = models.registerModel<ParanoiaModel>();
+    reg_success_total         = std::make_unique<Metrics::Counter>("paranoia_reg_success_total");
+    reg_fail_total            = std::make_unique<Metrics::Counter>("paranoia_reg_fail_total");
+    push_success_total        = std::make_unique<Metrics::Counter>("paranoia_push_success_total");
+    push_fail_total           = std::make_unique<Metrics::Counter>("paranoia_push_fail_total");
+    pull_success_total        = std::make_unique<Metrics::Counter>("paranoia_pull_success_total");
+    pull_fail_total           = std::make_unique<Metrics::Counter>("paranoia_pull_fail_total");
+    determinate_success_total = std::make_unique<Metrics::Counter>("paranoia_determinate_success_total");
+    determinate_fail_total    = std::make_unique<Metrics::Counter>("paranoia_determinate_fail_total");
 }
 
 void Paranoia::postInit()
@@ -80,47 +91,65 @@ void Paranoia::runIO()
                             auto admin_sig =
                                 Config::decode_base64(boost::json::value_to<std::string>(obj["admin_sig"]));
                             auto user_pub = Config::decode_base64(pub_key_b64);
-                            if (!verify_signature(config.admin_pubkey, username + pub_key_b64, admin_sig))
-                                return {false, "Invalid signature"};
+                            if (user_pub.size() != 32 || admin_sig.size() != 64 ||
+                                !verify_signature(config.admin_pubkey, username + pub_key_b64, admin_sig)) {
+                                (*reg_fail_total)++;
+                                R_LOG(1, "Rejected registration for user '" << username << "'");
+                                return {false, "Bad pubkey or signature"};
+                            }
                             {
                                 std::lock_guard<std::mutex> lock(config.mtx);
                                 config.users[username] = std::move(user_pub);
                                 config.save(config_path);
                             }
-                            return {true, "Registered successfully"};
-                        } catch (const std::exception &e) {
-                            return {false, std::string("Exception: ") + e.what()};
-                        }
-                    });
-
-    server->addPath("/push",
-                    [this](const boost::beast::http::request<boost::beast::http::string_body> &req,
-                           const boost::asio::ip::address &) -> std::pair<bool, std::string> {
-                        try {
-                            auto obj             = boost::json::parse(req.body()).as_object();
-                            std::string username = boost::json::value_to<std::string>(obj["username"]);
-                            uint64_t seq         = boost::json::value_to<uint64_t>(obj["seq"]);
-                            std::vector<uint8_t> payload =
-                                base64_decode(boost::json::value_to<std::string>(obj["payload"]));
-                            std::vector<uint8_t> sig = base64_decode(boost::json::value_to<std::string>(obj["sig"]));
-
-                            std::vector<uint8_t> pubkey;
-                            {
-                                std::lock_guard<std::mutex> lock(config.mtx);
-                                auto it = config.users.find(username);
-                                if (it == config.users.end()) return {false, "Not registered"};
-                                pubkey = it->second;
-                            }
-
-                            std::string hash_input =
-                                username + std::to_string(seq) + std::string(payload.begin(), payload.end());
-                            if (!verify_signature(pubkey, hash_input, sig)) return {false, "Invalid signature"};
-                            store->push(username, seq, payload); // RocksDB или другой PacketStore
+                            (*reg_success_total)++;
+                            G_LOG(1, "User '" << username << "' registered successfully");
                             return {true, "OK"};
                         } catch (const std::exception &e) {
+                            (*reg_fail_total)++;
+                            R_LOG(1, "Exception in /reg: " << e.what());
                             return {false, std::string("Exception: ") + e.what()};
                         }
                     });
+
+    server->addPath(
+        "/push",
+        [this](const boost::beast::http::request<boost::beast::http::string_body> &req,
+               const boost::asio::ip::address &) -> std::pair<bool, std::string> {
+            try {
+                auto obj                     = boost::json::parse(req.body()).as_object();
+                std::string username         = boost::json::value_to<std::string>(obj["username"]);
+                uint64_t seq                 = boost::json::value_to<uint64_t>(obj["seq"]);
+                std::vector<uint8_t> payload = base64_decode(boost::json::value_to<std::string>(obj["payload"]));
+                std::vector<uint8_t> sig     = base64_decode(boost::json::value_to<std::string>(obj["sig"]));
+                if (sig.size() != 64) {
+                    (*push_fail_total)++;
+                    R_LOG(1, "Push rejected for user '" << username << "': invalid signature length " << sig.size());
+                    return {false, "Bad sig len"};
+                }
+
+                std::vector<uint8_t> pubkey;
+                {
+                    std::lock_guard<std::mutex> lock(config.mtx);
+                    auto it = config.users.find(username);
+                    if (it == config.users.end()) {
+                        (*push_fail_total)++;
+                        return {false, "Not registered"};
+                    }
+                    pubkey = it->second;
+                }
+
+                std::string hash_input = username + std::to_string(seq) + std::string(payload.begin(), payload.end());
+                if (!verify_signature(pubkey, hash_input, sig)) return {false, "Invalid signature"};
+                store->push(username, seq, payload);
+                (*push_success_total)++;
+                return {true, "OK"};
+            } catch (const std::exception &e) {
+                (*push_fail_total)++;
+                R_LOG(1, "Error on /push data " << e.what());
+                return {false, std::string("Exception: ") + e.what()};
+            }
+        });
     server->addPath("/pull",
                     [this](const boost::beast::http::request<boost::beast::http::string_body> &req,
                            const boost::asio::ip::address &) -> std::pair<bool, std::string> {
@@ -129,15 +158,27 @@ void Paranoia::runIO()
                             std::string username     = boost::json::value_to<std::string>(obj["username"]);
                             uint64_t after_seq       = boost::json::value_to<uint64_t>(obj["after_seq"]);
                             std::vector<uint8_t> sig = base64_decode(boost::json::value_to<std::string>(obj["sig"]));
+                            if (sig.size() != 64) {
+                                R_LOG(1, "Push rejected for user '" << username << "': invalid signature length "
+                                                                    << sig.size());
+                                (*pull_fail_total)++;
+                                return {false, "Bad sig len"};
+                            }
                             std::vector<uint8_t> pubkey;
                             {
                                 std::lock_guard<std::mutex> lock(config.mtx);
                                 auto it = config.users.find(username);
-                                if (it == config.users.end()) return {false, "Not registered"};
+                                if (it == config.users.end()) {
+                                    (*pull_fail_total)++;
+                                    return {false, "Not registered"};
+                                }
                                 pubkey = it->second;
                             }
                             std::string hash_input = username + std::to_string(after_seq);
-                            if (!verify_signature(pubkey, hash_input, sig)) return {false, "Invalid user signature"};
+                            if (!verify_signature(pubkey, hash_input, sig)) {
+                                (*pull_fail_total)++;
+                                return {false, "Invalid user signature"};
+                            }
                             boost::json::array response;
                             for (auto &p : store->pull(username, after_seq)) {
                                 boost::json::object packet;
@@ -145,8 +186,51 @@ void Paranoia::runIO()
                                 packet["payload"] = base64_encode(p.second);
                                 response.push_back(std::move(packet));
                             }
+                            (*pull_success_total)++;
                             return {true, boost::json::serialize(response)};
                         } catch (const std::exception &e) {
+                            (*pull_fail_total)++;
+                            R_LOG(1, "Error on /pull data " << e.what());
+                            return {false, std::string("Exception: ") + e.what()};
+                        }
+                    });
+
+    server->addPath("/determinate",
+                    [this](const boost::beast::http::request<boost::beast::http::string_body> &req,
+                           const boost::asio::ip::address &) -> std::pair<bool, std::string> {
+                        try {
+                            auto obj                 = boost::json::parse(req.body()).as_object();
+                            std::string username     = boost::json::value_to<std::string>(obj["username"]);
+                            uint64_t after_seq       = boost::json::value_to<uint64_t>(obj["after_seq"]);
+                            std::vector<uint8_t> sig = base64_decode(boost::json::value_to<std::string>(obj["sig"]));
+                            if (sig.size() != 64) {
+                                R_LOG(1, "Push rejected for user '" << username << "': invalid signature length "
+                                                                    << sig.size());
+                                (*determinate_fail_total)++;
+                                return {false, "Bad sig len"};
+                            }
+                            std::vector<uint8_t> pubkey;
+                            {
+                                std::lock_guard<std::mutex> lock(config.mtx);
+                                auto it = config.users.find(username);
+                                if (it == config.users.end()) {
+                                    (*determinate_fail_total)++;
+                                    return {false, "Not registered"};
+                                }
+                                pubkey = it->second;
+                            }
+                            std::string hash_input = username + std::to_string(after_seq);
+                            if (!verify_signature(pubkey, hash_input, sig)) {
+                                (*determinate_fail_total)++;
+                                return {false, "Invalid user signature"};
+                            }
+                            store->removeUser(username);
+                            G_LOG(1, "All packets for user '" << username << "' have been deleted");
+                            (*determinate_success_total)++;
+                            return {true, "OK"};
+                        } catch (const std::exception &e) {
+                            (*determinate_fail_total)++;
+                            R_LOG(1, "Error on /determinate data " << e.what());
                             return {false, std::string("Exception: ") + e.what()};
                         }
                     });
