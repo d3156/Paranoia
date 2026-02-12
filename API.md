@@ -24,15 +24,15 @@ Paranoia — это сервер для безопасного хранения 
 ### Admin
 
 ```bash
-openssl genpkey -algorithm Ed25519 -out admin_private.pem
-openssl pkey -in admin_private.pem -pubout -out admin_public.pem
+openssl genpkey -algorithm ED25519 -out admin_private.pem
+openssl pkey -in admin_private.pem -pubout -outform DER | tail -c 32 | base64 -w0 > admin_public.b64
 ```
 
 ### User
 
 ```bash
-openssl genpkey -algorithm Ed25519 -out user_private.pem
-openssl pkey -in user_private.pem -pubout -out user_public.pem
+openssl genpkey -algorithm ED25519 -out user_private.pem
+openssl pkey -in user_private.pem -pubout -outform DER | tail -c 32 | base64 -w0 > user_public.b64
 ```
 
 ### Test sign
