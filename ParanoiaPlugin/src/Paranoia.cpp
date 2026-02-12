@@ -2,6 +2,7 @@
 #include "PacketStore.hpp"
 #include "config.hpp"
 #include <MetricsModel/MetricsModel>
+#include <boost/json/src.hpp>
 #include <boost/json/parse.hpp>
 #include <boost/json/serialize.hpp>
 #include <boost/json/value.hpp>

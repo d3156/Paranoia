@@ -10,6 +10,9 @@ dependency("../../MetricsModel" MetricsModel)
 find_package(Boost 1.8 REQUIRED COMPONENTS json thread system)
 target_link_libraries(Paranoia PRIVATE Boost::json Boost::system Boost::thread)
 
+find_package(OpenSSL REQUIRED COMPONENTS SSL Crypto)
+target_link_libraries(Paranoia PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(ROCKSDB REQUIRED rocksdb)
 
