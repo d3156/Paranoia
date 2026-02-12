@@ -102,6 +102,10 @@ void Paranoia::runIO()
                             }
                             {
                                 std::lock_guard<std::mutex> lock(config.mtx);
+                                if (config.users.contains(username)) {
+                                    R_LOG(1, "User '" << username << "' already registred: ");
+                                    return {false, "User already registred"};
+                                }
                                 config.users[username] = std::move(user_pub);
                                 config.save(config_path);
                             }
