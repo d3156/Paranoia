@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
 #include <string>
@@ -15,7 +16,7 @@ public:
 
     std::vector<std::pair<uint64_t, std::vector<uint8_t>>> pull(const std::string &dialogue_id, uint64_t after_seq);
 
-    void removDialogue(const std::string &dialogue_id);
+    void removeUntil(const std::string &dialogue_id, uint64_t cut_seq);
 
 private:
     rocksdb::DB *db_;

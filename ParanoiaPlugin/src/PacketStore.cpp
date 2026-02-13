@@ -31,41 +31,42 @@ void PacketStore::push(const std::string &dialogue_id, uint64_t seq, const std::
     if (!s.ok()) { throw std::runtime_error("RocksDB put failed: " + s.ToString()); }
 }
 
-std::vector<std::pair<uint64_t, std::vector<uint8_t>>> PacketStore::pull(const std::string &dialogue_id, uint64_t after_seq)
+std::vector<std::pair<uint64_t, std::vector<uint8_t>>> PacketStore::pull(const std::string &dialogue_id,
+                                                                         uint64_t after_seq)
 {
-
     std::lock_guard<std::mutex> lock(mtx_);
     std::vector<std::pair<uint64_t, std::vector<uint8_t>>> result;
-
-    rocksdb::Iterator *it = db_->NewIterator(rocksdb::ReadOptions());
+    std::unique_ptr<rocksdb::Iterator> it(db_->NewIterator(rocksdb::ReadOptions()));
     std::string start_key = makeKey(dialogue_id, after_seq + 1);
-
     for (it->Seek(start_key); it->Valid(); it->Next()) {
         std::string key = it->key().ToString();
         if (key.find(dialogue_id + ":") != 0) break;
-        uint64_t seq             = std::stoull(key.substr(dialogue_id.size() + 1));
+        uint64_t seq = 0;
+        auto *begin  = key.data() + dialogue_id.size() + 1;
+        auto *end    = key.data() + key.size();
+        std::from_chars(begin, end, seq);
         const rocksdb::Slice val = it->value();
         std::vector<uint8_t> data(val.data(), val.data() + val.size());
         result.emplace_back(seq, std::move(data));
     }
-    delete it;
     return result;
 }
 
-void PacketStore::removDialogue(const std::string &dialogue_id)
+void PacketStore::removeUntil(const std::string &dialogue_id, uint64_t cut_seq)
 {
     std::lock_guard<std::mutex> lock(mtx_);
     rocksdb::WriteBatch batch;
-
-    rocksdb::Iterator *it = db_->NewIterator(rocksdb::ReadOptions());
+    std::unique_ptr<rocksdb::Iterator> it(db_->NewIterator(rocksdb::ReadOptions()));
     std::string prefix    = dialogue_id + ":";
     for (it->Seek(prefix); it->Valid(); it->Next()) {
         std::string key = it->key().ToString();
         if (key.find(prefix) != 0) break;
-        batch.Delete(key);
+        uint64_t seq = 0;
+        auto *begin  = key.data() + prefix.size();
+        auto *end    = key.data() + key.size();
+        std::from_chars(begin, end, seq);
+        if (seq <= cut_seq) batch.Delete(key);
     }
-    delete it;
-
     rocksdb::Status s = db_->Write(rocksdb::WriteOptions(), &batch);
-    if (!s.ok()) throw std::runtime_error("Failed to remove dialogue_id " + dialogue_id + ": " + s.ToString()); 
+    if (!s.ok()) throw std::runtime_error("Failed to remove dialogue_id " + dialogue_id + ": " + s.ToString());
 }

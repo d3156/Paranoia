@@ -101,24 +101,24 @@ d3156::Answer Paranoia::reg(const d3156::string_req &req, const d3156::address &
         if (user_pub.size() != 32 || admin_sig.size() != 64 ||
             !verify_signature(config.admin_pubkey, username + pub_key_b64, admin_sig)) {
             (*reg_fail_total)++;
-            R_LOG(1, "Rejected registration for user '" << username << "'");
+            R_LOG(10, "Rejected registration for user '" << username << "'");
             return {false, "Bad pubkey or signature"};
         }
         {
             std::lock_guard<std::mutex> lock(config.mtx);
             if (config.users.contains(username)) {
-                R_LOG(1, "User '" << username << "' already registred: ");
+                R_LOG(10, "User '" << username << "' already registred: ");
                 return {false, "User already registred"};
             }
             config.users[username] = std::move(user_pub);
             config.save(config_path);
         }
         (*reg_success_total)++;
-        G_LOG(1, "User '" << username << "' registered successfully");
+        G_LOG(10, "User '" << username << "' registered successfully");
         return {true, "OK"};
     } catch (const std::exception &e) {
         (*reg_fail_total)++;
-        R_LOG(1, "Exception in /reg: " << e.what());
+        R_LOG(10, "Exception in /reg: " << e.what());
         return {false, std::string("Exception: ") + e.what()};
     }
 }
@@ -127,35 +127,24 @@ d3156::Answer Paranoia::push(const d3156::string_req &req, const d3156::address 
 {
     try {
         auto obj                     = boost::json::parse(req.body()).as_object();
-        std::string username         = boost::json::value_to<std::string>(obj["username"]);
+        std::string sender           = boost::json::value_to<std::string>(obj["sender"]);
+        std::string recver           = boost::json::value_to<std::string>(obj["recver"]);
         uint64_t seq                 = boost::json::value_to<uint64_t>(obj["seq"]);
+        // Тут возможна атака перепосылкой, т.к. не проверяется seq но будет owerwrite сообщения а на сообщение а. 
+        // Критично будет, если добавим изменения старых сообщений по seq. Тогда MITM может перезаписать новое старым
         std::vector<uint8_t> payload = decode_base64(boost::json::value_to<std::string>(obj["payload"]));
         std::vector<uint8_t> sig     = decode_base64(boost::json::value_to<std::string>(obj["sig"]));
-        if (sig.size() != 64) {
-            (*push_fail_total)++;
-            R_LOG(1, "Push rejected for user '" << username << "': invalid signature length " << sig.size());
-            return {false, "Bad sig len"};
-        }
-
-        std::vector<uint8_t> pubkey;
-        {
-            std::lock_guard<std::mutex> lock(config.mtx);
-            auto it = config.users.find(username);
-            if (it == config.users.end()) {
-                (*push_fail_total)++;
-                return {false, "Not registered"};
-            }
-            pubkey = it->second;
-        }
-
-        std::string hash_input = username + std::to_string(seq) + std::string(payload.begin(), payload.end());
-        if (!verify_signature(pubkey, hash_input, sig)) return {false, "Invalid signature"};
-        store->push(username, seq, payload);
+        if (!checkSigSize(sig, *push_fail_total)) return {false, "Bad sig len"};
+        auto pubkey = checkRegister(sender, recver, *push_fail_total);
+        if (!pubkey) return {false, "One user in pair not registered"};
+        std::string hash_input = sender + recver + std::to_string(seq) + std::string(payload.begin(), payload.end());
+        if (!verify_signature(*pubkey, hash_input, sig)) return {false, "Invalid signature"};
+        store->push(make_dialogue_id(sender, recver), seq, payload);
         (*push_success_total)++;
         return {true, "OK"};
     } catch (const std::exception &e) {
         (*push_fail_total)++;
-        R_LOG(1, "Error on /push data " << e.what());
+        R_LOG(10, "Error on /push data " << e.what());
         return {false, std::string("Exception: ") + e.what()};
     }
 }
@@ -164,36 +153,25 @@ d3156::Answer Paranoia::determinate(const d3156::string_req &req, const d3156::a
 {
     try {
         auto obj                 = boost::json::parse(req.body()).as_object();
-        std::string username     = boost::json::value_to<std::string>(obj["username"]);
-        uint64_t after_seq       = boost::json::value_to<uint64_t>(obj["after_seq"]);
+        std::string sender       = boost::json::value_to<std::string>(obj["sender"]);
+        std::string recver       = boost::json::value_to<std::string>(obj["recver"]);
+        uint64_t cut_seq           = boost::json::value_to<uint64_t>(obj["cut_seq"]);
         std::vector<uint8_t> sig = decode_base64(boost::json::value_to<std::string>(obj["sig"]));
-        if (sig.size() != 64) {
-            R_LOG(1, "Push rejected for user '" << username << "': invalid signature length " << sig.size());
-            (*determinate_fail_total)++;
-            return {false, "Bad sig len"};
-        }
-        std::vector<uint8_t> pubkey;
-        {
-            std::lock_guard<std::mutex> lock(config.mtx);
-            auto it = config.users.find(username);
-            if (it == config.users.end()) {
-                (*determinate_fail_total)++;
-                return {false, "Not registered"};
-            }
-            pubkey = it->second;
-        }
-        std::string hash_input = username + std::to_string(after_seq);
-        if (!verify_signature(pubkey, hash_input, sig)) {
+        if (!checkSigSize(sig, *determinate_fail_total)) return {false, "Bad sig len"};
+        auto pubkey = checkRegister(sender, recver, *determinate_fail_total);
+        if (!pubkey) return {false, "One user in pair not registered"};
+        std::string hash_input = sender + recver + std::to_string(cut_seq);
+        if (!verify_signature(*pubkey, hash_input, sig)) {
             (*determinate_fail_total)++;
             return {false, "Invalid user signature"};
         }
-        store->removDialogue(username);
-        G_LOG(1, "All packets for user '" << username << "' have been deleted");
+        store->removeUntil(make_dialogue_id(sender, recver), cut_seq);
+        G_LOG(10, "All packets for dialogue '" << sender << "->" << recver << "' have been deleted");
         (*determinate_success_total)++;
         return {true, "OK"};
     } catch (const std::exception &e) {
         (*determinate_fail_total)++;
-        R_LOG(1, "Error on /determinate data " << e.what());
+        R_LOG(10, "Error on /determinate data " << e.what());
         return {false, std::string("Exception: ") + e.what()};
     }
 }
@@ -202,31 +180,20 @@ d3156::Answer Paranoia::pull(const d3156::string_req &req, const d3156::address 
 {
     try {
         auto obj                 = boost::json::parse(req.body()).as_object();
-        std::string username     = boost::json::value_to<std::string>(obj["username"]);
+        std::string sender       = boost::json::value_to<std::string>(obj["sender"]);
+        std::string recver       = boost::json::value_to<std::string>(obj["recver"]);
         uint64_t after_seq       = boost::json::value_to<uint64_t>(obj["after_seq"]);
         std::vector<uint8_t> sig = decode_base64(boost::json::value_to<std::string>(obj["sig"]));
-        if (sig.size() != 64) {
-            R_LOG(1, "Push rejected for user '" << username << "': invalid signature length " << sig.size());
-            (*pull_fail_total)++;
-            return {false, "Bad sig len"};
-        }
-        std::vector<uint8_t> pubkey;
-        {
-            std::lock_guard<std::mutex> lock(config.mtx);
-            auto it = config.users.find(username);
-            if (it == config.users.end()) {
-                (*pull_fail_total)++;
-                return {false, "Not registered"};
-            }
-            pubkey = it->second;
-        }
-        std::string hash_input = username + std::to_string(after_seq);
-        if (!verify_signature(pubkey, hash_input, sig)) {
+        if (!checkSigSize(sig, *pull_fail_total)) return {false, "Bad sig len"};
+        auto pubkey = checkRegister(sender, recver, *pull_fail_total);
+        if (!pubkey) return {false, "One user in pair not registered"};
+        std::string hash_input = sender + recver + std::to_string(after_seq);
+        if (!verify_signature(*pubkey, hash_input, sig)) {
             (*pull_fail_total)++;
             return {false, "Invalid user signature"};
         }
         boost::json::array response;
-        for (auto &p : store->pull(username, after_seq)) {
+        for (auto &p : store->pull(make_dialogue_id(sender, recver), after_seq)) {
             boost::json::object packet;
             packet["seq"]     = p.first;
             packet["payload"] = encode_base64(p.second);
@@ -236,7 +203,27 @@ d3156::Answer Paranoia::pull(const d3156::string_req &req, const d3156::address 
         return {true, boost::json::serialize(response)};
     } catch (const std::exception &e) {
         (*pull_fail_total)++;
-        R_LOG(1, "Error on /pull data " << e.what());
+        R_LOG(10, "Error on /pull data " << e.what());
         return {false, std::string("Exception: ") + e.what()};
     }
+}
+
+std::optional<std::vector<uint8_t>> Paranoia::checkRegister(const std::string &sender, const std::string &recver,
+                                                            Metrics::Counter&fails)
+{
+    std::lock_guard<std::mutex> lock(config.mtx);
+    auto it = config.users.find(sender);
+    if (!config.users.contains(recver) || it == config.users.end()) {
+        fails++;
+        return {};
+    }
+    return it->second;
+}
+
+bool Paranoia::checkSigSize(const std::vector<uint8_t> &sig, Metrics::Counter &fails)
+{
+    if (sig.size() == 64) return true;
+    R_LOG(10, "Rejected for dialogue invalid signature length " << sig.size());
+    fails++;
+    return false;
 }

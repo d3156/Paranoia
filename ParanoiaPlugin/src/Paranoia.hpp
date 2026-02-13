@@ -7,6 +7,7 @@
 #include <EasyHttpLib/EasyWebServer>
 #include <MetricsModel/Metrics>
 #include <string>
+#include <utility>
 #include "PacketStore.hpp"
 #include "config.hpp"
 
@@ -32,6 +33,10 @@ public:
     d3156::Answer pull(const d3156::string_req &req, const d3156::address &);
 
 private:
+    std::optional<std::vector<uint8_t>> checkRegister(const std::string &sender, const std::string &recver,
+                                                      Metrics::Counter &);
+    bool checkSigSize(const std::vector<uint8_t> &sig, Metrics::Counter &);
+
     boost::asio::io_context io;
     boost::thread thread_;
     boost::asio::executor_work_guard<boost::asio::io_context::executor_type> io_guard =
