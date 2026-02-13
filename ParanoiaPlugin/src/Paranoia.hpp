@@ -26,6 +26,10 @@ public:
     void runIO();
 
     ~Paranoia();
+    d3156::Answer reg(const d3156::string_req &req, const d3156::address &);
+    d3156::Answer push(const d3156::string_req &req, const d3156::address &);
+    d3156::Answer determinate(const d3156::string_req &req, const d3156::address &);
+    d3156::Answer pull(const d3156::string_req &req, const d3156::address &);
 
 private:
     boost::asio::io_context io;

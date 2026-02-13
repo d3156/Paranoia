@@ -1,28 +1,12 @@
 #include "config.hpp"
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
-#include <boost/beast/core/detail/base64.hpp>
 #include <filesystem>
 #include <Logger/Log.hpp>
+#include "utils.hpp"
 
 using boost::property_tree::ptree;
-using namespace boost::beast::detail;
-std::string Config::encode_base64(const std::vector<uint8_t> &data)
-{
-    std::string encoded;
-    encoded.resize(base64::encoded_size(data.size()));
-    std::size_t written = base64::encode(encoded.data(), data.data(), data.size());
-    encoded.resize(written);
-    return encoded;
-}
-
-std::vector<uint8_t> Config::decode_base64(const std::string &str)
-{
-    std::vector<uint8_t> decoded(base64::decoded_size(str.size()));
-    auto result = base64::decode(reinterpret_cast<char *>(decoded.data()), str.data(), str.size());
-    decoded.resize(result.first);
-    return decoded;
-}
+using namespace ParanoiaUtils;
 
 void Config::save(const std::string &filename)
 {

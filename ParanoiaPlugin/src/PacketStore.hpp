@@ -11,11 +11,11 @@ public:
     PacketStore(const std::string &db_path);
     ~PacketStore();
 
-    void push(const std::string &user_id, uint64_t seq, const std::vector<uint8_t> &data);
+    void push(const std::string &dialogue_id, uint64_t seq, const std::vector<uint8_t> &data);
 
-    std::vector<std::pair<uint64_t, std::vector<uint8_t>>> pull(const std::string &user_id, uint64_t after_seq);
+    std::vector<std::pair<uint64_t, std::vector<uint8_t>>> pull(const std::string &dialogue_id, uint64_t after_seq);
 
-    void removeUser(const std::string &user_id);
+    void removDialogue(const std::string &dialogue_id);
 
 private:
     rocksdb::DB *db_;
