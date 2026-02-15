@@ -2,7 +2,7 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <filesystem>
-#include <Logger/Log.hpp>
+#include <PluginCore/Logger/Log>
 #include "utils.hpp"
 
 using boost::property_tree::ptree;

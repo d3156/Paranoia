@@ -1,5 +1,5 @@
 #include "PacketStore.hpp"
-#include <Logger/Log.hpp>
+#include <PluginCore/Logger/Log>
 #include <sstream>
 #include <iomanip>
 #include <stdexcept>

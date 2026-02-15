@@ -1,5 +1,5 @@
 #pragma once
-#include <PluginCore/IModel.hpp>
+#include <PluginCore/IModel>
 
 class ParanoiaModel final : public d3156::PluginCore::IModel {
     std::string configPath = "./configs/ParanoiaModel.json";
