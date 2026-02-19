@@ -1,2 +1,2 @@
 sudo apt update
-sudo apt install -y librocksdb-dev
+sudo apt install -y librocksdb-dev pkg-config

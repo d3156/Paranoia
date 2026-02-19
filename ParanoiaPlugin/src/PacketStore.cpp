@@ -3,6 +3,7 @@
 #include <sstream>
 #include <iomanip>
 #include <stdexcept>
+#include <charconv>
 #include <rocksdb/status.h>
 
 PacketStore::PacketStore(const std::string &db_path)
