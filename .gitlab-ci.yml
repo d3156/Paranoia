@@ -162,6 +162,8 @@ build:arm64:
       libboost-iostreams-dev:arm64 libssl-dev:arm64 librocksdb-dev:arm64 pkg-config
     - export PATH="/usr/lib/ccache:$PATH"
     - ccache -M 5G
+    - export PKG_CONFIG_LIBDIR="/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig"
+    - export PKG_CONFIG_PATH="$PKG_CONFIG_LIBDIR"
 
 # --- ARMhf / ARMv7 ---
 build:armhf:
@@ -210,6 +212,8 @@ build:armhf:
       libboost-json-dev:armhf libboost-regex-dev:armhf libboost-iostreams-dev:armhf librocksdb-dev:armhf pkg-config
     - export PATH="/usr/lib/ccache:$PATH"
     - ccache -M 5G
+    - export PKG_CONFIG_LIBDIR="/usr/lib/arm-linux-gnueabihf/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig"
+    - export PKG_CONFIG_PATH="$PKG_CONFIG_LIBDIR"
 
 # --- Release ---
 release:gitlab_release:
