@@ -8,8 +8,8 @@ dependency("../.." EasyHttpLib "https://gitlab.bubki.zip/d3156/EasyHttpLib.git")
 dependency("../.." MetricsModel "https://gitlab.bubki.zip/d3156/MetricsModel.git")
 dependency("../.." ConfiguratorModel "https://gitlab.bubki.zip/d3156/PluginConfigurator")
 
-find_package(Boost 1.8 REQUIRED COMPONENTS json thread system)
-target_link_libraries(Paranoia PRIVATE Boost::json Boost::system Boost::thread)
+find_package(Boost 1.8 REQUIRED COMPONENTS json thread system url)
+target_link_libraries(Paranoia PRIVATE Boost::json Boost::system Boost::thread Boost::url)
 
 find_package(OpenSSL REQUIRED COMPONENTS SSL Crypto)
 target_link_libraries(Paranoia PUBLIC OpenSSL::SSL OpenSSL::Crypto)
